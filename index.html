@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>Simple Pusher Client</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-rbsA2VBKQhggwzxH7pPCaAqO46MgnOM80zW1RWuH61DGLwZJEdK2Kadq2F9CUG65" crossorigin="anonymous">
+    <style>
+        .arr-up {
+            color:green;
+            font-weight: bold;
+        }
+        .arr-down {
+            color:red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container">
+        <div class="py-5 text-center">
+            <h2>Simple Pusher JS client example</h2>
+        </div>
+
+        <div class="row g-5">
+            <div class="col-md-7 col-lg-8">
+                <h4 class="mb-3">Connection configuration</h4>
+                <form class="mt-0 needs-validation" id="connection" novalidate>
+                    <div class="row g-3">
+                        <div class="col-sm-6">
+                            <label for="pusherHost" class="form-label">Pusher Host</label>
+                            <input type="text" class="form-control" id="pusherHost" placeholder="" value="" required>
+                        </div>
+
+                        <div class="col-sm-3">
+                            <label for="pusherPort" class="form-label">Pusher Port</label>
+                            <input type="text" class="form-control" id="pusherPort" placeholder="" value="" required>
+                        </div>
+
+                        <div class="col-sm-3">
+                            <label for="pusherEncrypted" class="form-label">Encrypted</label>
+                            <select class="form-select" id="pusherEncrypted" required>
+                                <option value="true">true</option>
+                                <option value="false">false</option>
+                            </select>
+                        </div>
+
+                        <div class="col-6">
+                            <label for="pusherAppKey" class="form-label">App Key</label>
+                            <input type="text" class="form-control" id="pusherAppKey" placeholder="" required>
+                        </div>
+
+                        <div class="col-6">
+                            <label for="pusherWsPath" class="form-label">WS Path</label>
+                            <input type="text" class="form-control" id="pusherWsPath" placeholder="/ws" value="/ws" required>
+                        </div>
+
+                        <div class="col-12">
+                            <label for="authUrl" class="form-label">Authorization URL <span class="text-muted">(Optional)</span></label>
+                            <input type="text" class="form-control" id="authUrl" placeholder="https://...">
+                        </div>
+
+                        <div class="col-12">
+                            <label for="authToken" class="form-label">Authorization Token <span class="text-muted">(Optional)</span></label>
+                            <textarea type="text" class="form-control" id="authToken" placeholder="Bearer ..."></textarea>
+                        </div>
+
+                        <div class="col-12">
+                            <button class="w-100 btn btn-primary btn-lg" type="submit">Connect</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <div class="col-md-5 col-lg-4 order-md-last">
+                <h4 class="d-flex justify-content-between align-items-center mb-3">Channels subscribed</h4>
+
+                <form class="card p-2" id="channels">
+                    <div class="input-group">
+                        <input type="text" class="form-control" placeholder="private-...">
+                        <button type="submit" class="btn btn-secondary" disabled>+</button>
+                    </div>
+                </form>
+
+                <ul class="list-group mt-3" id="channelsList"></ul>
+            </div>
+        </div>
+
+        <hr class="my-4">
+    </div>
+
+    <div class="container-fluid">
+        <div class="row g-5">
+            <h4 class="mb-3">Event log</h4>
+            <div class="mt-0 table-responsive">
+                <table id="eventLog" class="table table-striped border">
+                    <thead>
+                        <tr>
+                            <th style="width: 1%;">Time</th>
+                            <th style="width: 1%;">Channel</th>
+                            <th style="width: 1%;">Event</th>
+                            <th>Data</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <footer class="my-5 pt-5 text-muted text-center text-small">
+            <p class="mb-1">&copy; 2022 <a href="https://github.com/IlmLV">IlmLV</a></p>
+        </footer>
+    </div>
+
+    <script src="https://js.pusher.com/7.2.0/pusher.min.js"></script>
+    <script>
+        let PusherClient = {
+            connectionFormContainer: '#connection',
+            channelsFormContainer: '#channels',
+            channelsListContainer: '#channelsList',
+            logContainer: '#eventLog tbody',
+            pusher: null,
+            connectionSettings: {
+                pusherHost: '',
+                pusherPort: '',
+                pusherEncrypted: true,
+                pusherAppKey: '',
+                pusherWsPath: '',
+                authUrl: '',
+                authToken: ''
+            },
+            channelsSubscribed: [],
+
+            init: function () {
+
+                // Persistent Connection Form
+                const connectionForm = document.getElementById('connection');
+                document.addEventListener('DOMContentLoaded', function () {
+                    if(localStorage.getItem('connectionSettings')) {
+                        PusherClient.connectionSettings = JSON.parse(localStorage.getItem('connectionSettings'))
+                    }
+                    [...connectionForm.elements].forEach(item => {
+                        item.value = PusherClient.connectionSettings[item.id]
+                        item.addEventListener('input', function () {
+                            PusherClient.connectionSettings[this.id] = this.value
+                            localStorage.setItem('connectionSettings', JSON.stringify(PusherClient.connectionSettings))
+                        })
+                    })
+                }, false);
+
+                connectionForm.addEventListener("submit", function (e){
+                    e.preventDefault()
+                    PusherClient.connect()
+                });
+
+                // Persistent Channels Form
+                const channelsForm = document.querySelector(this.channelsFormContainer);
+                document.addEventListener('DOMContentLoaded', function () {
+                    if(localStorage.getItem('channelsSubscribed')) {
+                        PusherClient.channelsSubscribed = JSON.parse(localStorage.getItem('channelsSubscribed'))
+                    }
+                    if (PusherClient.channelsSubscribed) {
+                        [...PusherClient.channelsSubscribed].forEach(chanel_name => {
+                            PusherClient.subscribePrint(chanel_name)
+                        })
+                    }
+                }, false);
+
+                channelsForm.addEventListener("submit", function (e){
+                    e.preventDefault()
+                    let channelInput = channelsForm.querySelector('input')
+                    let value = channelInput.value
+                    channelInput.value = ''
+                    PusherClient.subscribe(value)
+                });
+            },
+
+            connect: function () {
+                if (this.pusher) {
+                    this.disconnect()
+                }
+
+                Pusher.log = this.pusherLogParser;
+                this.pusher = new Pusher(this.connectionSettings.pusherAppKey, {
+                    wsHost: this.connectionSettings.pusherHost,
+                    wsPort: this.connectionSettings.pusherPort,
+                    encrypted: (this.connectionSettings.pusherEncrypted === 'true'),
+                    forceTLS: false,
+                    enableStats: false,
+                    enabledTransports: ['ws', 'wss'],
+                    wsPath: this.connectionSettings.pusherWsPath,
+                    authTransport: 'ajax',
+                    authEndpoint: this.connectionSettings.authUrl,
+                    auth: {
+                        headers: {Authorization: this.connectionSettings.authToken},
+                    }
+                });
+
+                if (PusherClient.channelsSubscribed) {
+                    [...PusherClient.channelsSubscribed].forEach(chanel_name => {
+                        this.subscribe(chanel_name)
+                    })
+                }
+
+                connButton = document.querySelector(this.connectionFormContainer + ' button')
+                connButton.classList.remove("btn-primary");
+                connButton.classList.add("btn-secondary");
+
+                chnlButton = document.querySelector(this.channelsFormContainer + ' button')
+                chnlButton.removeAttribute('disabled')
+                chnlButton.classList.remove("btn-secondary");
+                chnlButton.classList.add("btn-primary");
+            },
+
+            disconnect: function () {
+                document.querySelector(this.logContainer).innerHTML = ''
+                this.pusher.disconnect()
+            },
+
+            subscribe: function (chanel_name) {
+                let channel = this.pusher.subscribe(chanel_name)
+                channel.bind("pusher:subscription_succeeded", () => {
+                    if (this.channelsSubscribed.includes(chanel_name) === false) {
+                        this.channelsSubscribed.push(chanel_name)
+                        localStorage.setItem('channelsSubscribed', JSON.stringify(this.channelsSubscribed))
+
+                        this.subscribePrint(chanel_name)
+                    }
+                });
+            },
+
+            unsubscribe: function (chanel_name) {
+                if (!this.pusher) {return false;}
+
+                this.pusher.unsubscribe(chanel_name)
+
+                if (this.channelsSubscribed.includes(chanel_name)) {
+                    this.channelsSubscribed.splice(this.channelsSubscribed.indexOf(chanel_name), 1)
+                    localStorage.setItem('channelsSubscribed', JSON.stringify(this.channelsSubscribed))
+
+                    document.querySelector(this.channelsListContainer + ' [data-channel=' + chanel_name +']').remove()
+                }
+            },
+
+            subscribePrint: function (chanel_name) {
+                document.querySelector(this.channelsListContainer).innerHTML
+                    += '<li class="list-group-item d-flex justify-content-between" data-channel="'+ chanel_name +'">\n' +
+                    '<h6 class="my-0">'+ chanel_name +'</h6>\n' +
+                    '<small class="text-muted" onclick="PusherClient.unsubscribe(\''+ chanel_name +'\')">X</small>\n' +
+                    '</li>'
+            },
+
+            pusherLogParser: function(msg) {
+                let prefix = 'Pusher :  : '
+                if (msg.startsWith(prefix)) {
+                    msg = msg.slice(prefix.length)
+                }
+                try {
+                    let log = JSON.parse(msg)
+                    if (log[0] === 'Event sent') {
+                        PusherClient.log('', '<span class="arr-up">↑</span>' + log[1].event, log[1].data ? JSON.stringify(log[1].data, null, '\t'): '')
+                        return true
+                    }
+                    else if (log[0] === 'Event recd') {
+                        PusherClient.log('', '<span class="arr-down">↓</span>' + log[1].event, log[1].data ? JSON.stringify(log[1].data, null, '\t'): '')
+                        return true
+                    }
+                    else {
+                        PusherClient.log('', '', JSON.stringify(log, null, '\t'))
+                    }
+                } catch (e) {
+                    PusherClient.log('', '', msg)
+                }
+            },
+
+            log: function (channel, event, data) {
+                let time = (new Date()).toISOString().substring(11,23)
+                document.querySelector(this.logContainer).innerHTML += '<tr></tr><td>'+ time +'</td><td>'+ channel +'</td><td>'+ event +'</td><td>'+ data +'</td></tr>'
+            }
+        }
+
+        PusherClient.init();
+    </script>
+</body>
+</html>

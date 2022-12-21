@@ -1,4 +1,4 @@
-# pusher-js-examples
+# pusher-js-toolkit
 
 Check out demo: https://ilmlv.github.io/pusher-js-toolkit/
 

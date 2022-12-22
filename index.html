@@ -26,7 +26,7 @@
 
         <div class="row g-5">
             <div class="col-md-7 col-lg-8">
-                <h4 class="mb-3">Connection configuration</h4>
+                <h4 class="mb-3">Connections <span class="badge text-bg-info" id="connCount">0</span></h4>
                 <form class="mt-0 needs-validation" id="connection" novalidate>
                     <div class="row g-3">
                         <div class="col-sm-6">
@@ -68,25 +68,30 @@
                         </div>
 
                         <div class="col-12">
-                            <button class="w-100 btn btn-primary btn-lg" id="connect" type="button">Connect</button>
-                            <button class="w-100 btn btn-light btn-lg d-none" id="disconnect" type="button">Disconnect</button>
+                            <div class="btn-group w-100" role="group">
+                                <button type="button" class="btn btn-light btn-lg d-none" id="disconnect">Disconnect all</button>
+                                <button type="button" class="btn btn-primary btn-lg" id="connect">Connect</button>
+                                <button type="button" class="btn btn-danger" id="connect10">+10</button>
+                            </div>
                         </div>
                     </div>
                 </form>
             </div>
 
             <div class="col-md-5 col-lg-4 order-md-last">
-                <h4 class="d-flex justify-content-between align-items-center mb-3">Channels subscribed</h4>
+                <h4 class="d-flex justify-content-between align-items-center mb-3">Channels <span class="badge text-bg-info" id="channelCount">0</span></h4>
 
-                <form class="card p-2 mb-2" id="channels">
+                <form class="card p-2" id="channels">
                     <div class="input-group">
                         <input type="text" class="form-control" placeholder="private-...">
                         <button type="button" class="btn btn-primary" id="addChannel" disabled>+</button>
-                        <button type="button" class="btn btn-danger" id="add100" disabled>+100</button>
+                        <button type="button" class="btn btn-danger" id="addChannel100" disabled>+100</button>
                     </div>
                 </form>
 
-                <div id="channelsList"></div>
+                <div id="channelsList" class="my-2"></div>
+
+                <button type="button" class="btn btn-sm btn-secondary w-100 d-none" id="unsubscribeAll">Unsubscribe all</button>
             </div>
         </div>
 
@@ -95,7 +100,7 @@
 
     <div class="container-fluid">
         <div class="row g-5">
-            <h4 class="mb-3">Event log</h4>
+            <h4 class="mb-3">Events <span class="badge text-bg-info" id="eventCount">0</span></h4>
             <div class="mt-0 table-responsive">
                 <table id="eventLog" class="table table-striped border">
                     <thead>
@@ -124,7 +129,7 @@
             channelsFormContainer: '#channels',
             channelsListContainer: '#channelsList',
             logContainer: '#eventLog tbody',
-            pusher: null,
+            pusherConnections: [],
             connectionSettings: {
                 pusherHost: '',
                 pusherPort: '',
@@ -135,11 +140,15 @@
                 authToken: ''
             },
             channelsSubscribed: [],
+            connCount: 0,
+            eventCount: 0,
 
             init: function () {
 
+                Pusher.log = this.pusherLogParser;
+
                 // Persistent Connection Form
-                const connectionForm = document.getElementById('connection');
+                const connectionForm = document.getElementById('connection')
                 document.addEventListener('DOMContentLoaded', function () {
                     if(localStorage.getItem('connectionSettings')) {
                         PusherClient.connectionSettings = JSON.parse(localStorage.getItem('connectionSettings'))
@@ -151,22 +160,36 @@
                             localStorage.setItem('connectionSettings', JSON.stringify(PusherClient.connectionSettings))
                         })
                     })
-                }, false);
+                }, false)
 
                 connectionForm.querySelector('#connect').addEventListener('click', function () {
                     PusherClient.connect()
-                    this.classList.add("d-none");
+                    connectionForm.querySelector('#connect').innerHTML = '+1'
                     connectionForm.querySelector('#disconnect').classList.remove('d-none')
                     document.querySelector(PusherClient.channelsFormContainer + ' #addChannel').disabled = false
-                    document.querySelector(PusherClient.channelsFormContainer + ' #add100').disabled = false
-                });
+                    document.querySelector(PusherClient.channelsFormContainer + ' #addChannel100').disabled = false
+                })
+                connectionForm.querySelector('#connect10').addEventListener('click', function () {
+                    for (var i = 0; i < 10; i++) {
+                        PusherClient.connect()
+                    }
+                    connectionForm.querySelector('#connect').innerHTML = '+1'
+                    connectionForm.querySelector('#disconnect').classList.remove('d-none')
+                    document.querySelector(PusherClient.channelsFormContainer + ' #addChannel').disabled = false
+                    document.querySelector(PusherClient.channelsFormContainer + ' #addChannel100').disabled = false
+                })
+
                 connectionForm.querySelector('#disconnect').addEventListener('click', function () {
+                    PusherClient.eventCount = 0;
+                    document.getElementById('eventCount').innerHTML = PusherClient.eventCount
+
                     PusherClient.disconnect()
+                    connectionForm.querySelector('#connect').innerHTML = 'Connect'
                     this.classList.add("d-none");
                     connectionForm.querySelector('#connect').classList.remove('d-none')
                     document.querySelector(PusherClient.channelsFormContainer + ' #addChannel').disabled = true
-                    document.querySelector(PusherClient.channelsFormContainer + ' #add100').disabled = true
-                });
+                    document.querySelector(PusherClient.channelsFormContainer + ' #addChannel100').disabled = true
+                })
 
                 // Persistent Channels Form
                 const channelsForm = document.querySelector(this.channelsFormContainer);
@@ -174,12 +197,14 @@
                     if(localStorage.getItem('channelsSubscribed')) {
                         PusherClient.channelsSubscribed = JSON.parse(localStorage.getItem('channelsSubscribed'))
                     }
-                    if (PusherClient.channelsSubscribed) {
+                    if (PusherClient.channelsSubscribed.length) {
                         [...PusherClient.channelsSubscribed].forEach(chanel_name => {
                             PusherClient.subscribePrint(chanel_name)
                         })
+                        document.getElementById('channelCount').innerHTML = PusherClient.channelsSubscribed.length
+                        document.getElementById('unsubscribeAll').classList.remove('d-none')
                     }
-                }, false);
+                }, false)
 
                 channelsForm.querySelector('#addChannel').addEventListener('click', function () {
                     let channelInput = channelsForm.querySelector('input')
@@ -187,25 +212,26 @@
                         PusherClient.subscribe(channelInput.value)
                         channelInput.value = ''
                     }
-                });
-                channelsForm.querySelector('#add100').addEventListener('click', function () {
+                })
+                channelsForm.querySelector('#addChannel100').addEventListener('click', function () {
                     let channelInput = channelsForm.querySelector('input')
                     if (channelInput.value) {
-                        for (var i = 0; i <= 100; i++) {
+                        for (var i = 0; i < 100; i++) {
                             PusherClient.subscribe(channelInput.value + i)
-                            channelInput.value = ''
                         }
+                        channelInput.value = ''
                     }
-                });
+                })
+                document.getElementById('unsubscribeAll').addEventListener('click', function () {
+                    [...PusherClient.channelsSubscribed].forEach(chanel_name => {
+                        PusherClient.unsubscribe(chanel_name)
+                    })
+                })
             },
 
             connect: function () {
-                if (this.pusher) {
-                    this.disconnect()
-                }
-
-                Pusher.log = this.pusherLogParser;
-                this.pusher = new Pusher(this.connectionSettings.pusherAppKey, {
+                let connNo = this.pusherConnections.length
+                this.pusherConnections[connNo] = new Pusher(this.connectionSettings.pusherAppKey, {
                     wsHost: this.connectionSettings.pusherHost,
                     wsPort: this.connectionSettings.pusherPort,
                     encrypted: (this.connectionSettings.pusherEncrypted === 'true'),
@@ -219,47 +245,71 @@
                         headers: {Authorization: this.connectionSettings.authToken},
                     }
                 });
+                this.consoleLogger(connNo)
+                this.pusherConnections[connNo].connection.bind('connected', (msg) => {
+                    PusherClient.connCount++
+                    document.getElementById('channelCount').innerHTML = PusherClient.channelsSubscribed.length
+                    document.getElementById('connCount').innerHTML = PusherClient.connCount
+                });
+                this.pusherConnections[connNo].connection.bind('disconnected', (msg) => {
+                    if (PusherClient.connCount === 0) return;
+                    PusherClient.connCount--
+                    document.getElementById('channelCount').innerHTML = PusherClient.channelsSubscribed.length
+                    document.getElementById('connCount').innerHTML = PusherClient.connCount
+                });
 
-                if (PusherClient.channelsSubscribed) {
-                    [...PusherClient.channelsSubscribed].forEach(chanel_name => {
-                        this.subscribe(chanel_name)
-                    })
-                }
+                [...this.channelsSubscribed].forEach(chanel_name => {
+                    this.subscribe(chanel_name)
+                })
             },
 
             disconnect: function () {
                 document.querySelector(this.logContainer).innerHTML = ''
-                this.pusher.disconnect()
+                this.pusherConnections.forEach(pusher => {
+                    pusher.disconnect()
+                })
+                this.pusherConnections = []
             },
 
             subscribe: function (chanel_name) {
-                let channel = this.pusher.subscribe(chanel_name)
-                channel.bind("pusher:subscription_succeeded", () => {
-                    if (this.channelsSubscribed.includes(chanel_name) === false) {
-                        this.channelsSubscribed.push(chanel_name)
-                        localStorage.setItem('channelsSubscribed', JSON.stringify(this.channelsSubscribed))
+                this.pusherConnections.forEach(pusher => {
+                    let channel = pusher.subscribe(chanel_name)
+                    channel.bind("pusher:subscription_succeeded", () => {
+                        if (this.channelsSubscribed.includes(chanel_name) === false) {
+                            this.channelsSubscribed.push(chanel_name)
+                            localStorage.setItem('channelsSubscribed', JSON.stringify(this.channelsSubscribed))
 
-                        this.subscribePrint(chanel_name)
-                    }
-                });
+                            this.subscribePrint(chanel_name)
+                            document.getElementById('channelCount').innerHTML = this.channelsSubscribed.length
+                            document.getElementById('unsubscribeAll').classList.remove('d-none')
+                        }
+                    });
+                })
             },
 
             unsubscribe: function (chanel_name) {
-                if (!this.pusher) {return false;}
-
-                this.pusher.unsubscribe(chanel_name)
+                if (this.pusherConnections.length) {
+                    this.pusherConnections.forEach(pusher => {
+                        pusher.unsubscribe(chanel_name)
+                    })
+                }
 
                 if (this.channelsSubscribed.includes(chanel_name)) {
                     this.channelsSubscribed.splice(this.channelsSubscribed.indexOf(chanel_name), 1)
                     localStorage.setItem('channelsSubscribed', JSON.stringify(this.channelsSubscribed))
 
                     document.querySelector(this.channelsListContainer + ' [data-channel=\'' + chanel_name +'\']').remove()
+                    document.getElementById('channelCount').innerHTML = this.channelsSubscribed.length
+
+                    if (!this.channelsSubscribed.length) {
+                        document.getElementById('unsubscribeAll').classList.add('d-none')
+                    }
                 }
             },
 
             subscribePrint: function (chanel_name) {
                 document.querySelector(this.channelsListContainer).innerHTML
-                    += '<span class="badge text-bg-info" data-channel="'+ chanel_name +'">'+ chanel_name +'&nbsp;&nbsp;<small class="ml-1 text-light remove" onclick="PusherClient.unsubscribe(\''+ chanel_name +'\')">X</small></span>'
+                    += '<span class="badge text-bg-info" data-channel="'+ chanel_name +'">'+ chanel_name +'&nbsp;&nbsp;<small class="ml-1 text-light remove" onclick="PusherClient.unsubscribe(\''+ chanel_name +'\')">X</small></span>&nbsp;'
             },
 
             pusherLogParser: function(msg) {
@@ -288,6 +338,22 @@
             log: function (channel, event, data) {
                 let time = (new Date()).toISOString().substring(11,23)
                 document.querySelector(this.logContainer).insertAdjacentHTML("afterbegin", '<tr></tr><td>'+ time +'</td><td>'+ channel +'</td><td>'+ event +'</td><td>'+ data +'</td></tr>')
+                this.eventCount++;
+                document.getElementById('eventCount').innerHTML = this.eventCount
+            },
+
+            consoleLogger: function (connNo) {
+                let events = [
+                    'initializing', 'initialized', 'state_change', 'connecting', 'connected', 'disconnected', 'message',
+                    'event', 'pusher_internal:test', 'open', 'error', 'closed', 'pusher:subscription_succeeded',
+                    'pusher:member_added', 'chunk', 'finished', 'buffer_too_long', 'online', 'offline', 'unavailable',
+                    'activity'
+                ]
+                events.forEach((event) => {
+                    this.pusherConnections[connNo].connection.bind(event, (msg) => {
+                        console.log(event +': ' + JSON.stringify(msg))
+                    });
+                })
             }
         }
 
